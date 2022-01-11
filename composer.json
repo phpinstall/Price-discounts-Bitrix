@@ -1,0 +1,10 @@
+{
+  "require": {
+    "phpoffice/phpspreadsheet": "^1.21"
+  },
+  "autoload": {
+    "psr-4": {
+      "ASH\\": "./local/src"
+    }
+  }
+}
