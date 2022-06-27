@@ -27,38 +27,38 @@ class DiscountsExcel
     /**
      * ID сайта
      *
-     * @var string
+     * @var string|false|mixed
      */
-    private $siteID;
+    protected string $siteID;
 
     /**
      * Шаблон названий правил работы корзин
      * 0 - префикс, 1 - префикс с id товара
      *
-     * @var array|string[]
+     * @var string[]
      */
-    private $rulePatternName;
+    private array $rulePatternName;
 
     /**
      * Соответствия столбцов
      *
      * @var array
      */
-    private $mappingColumn = [];
+    private array $mappingColumn;
 
     /**
      * Импортируемые данные
      *
      * @var array
      */
-    private $importData = [];
+    protected array $importData;
 
     /**
      * Данные для отчёта
      *
      * @var array
      */
-    private $report = [];
+    protected array $report;
 
     /**
      * Соответствия артикула и идентификатора товаров
@@ -66,28 +66,28 @@ class DiscountsExcel
      *
      * @var array
      */
-    private $productsIdMap = [];
+    protected array $productsIdMap;
 
     /**
      * Расположение файлов
      *
-     * @var array
+     * @var string[]
      */
-    private $files;
+    private array $files;
 
     /**
      * Код свойства артикула
      *
      * @var string
      */
-    private $propertyArticle;
+    private string $propertyArticle;
 
     /**
      * Символьный код инфоблока с торговым предложения
      *
      * @var string
      */
-    private $ibOffersCode;
+    private string $ibOffersCode;
 
     /**
      * @throws LoaderException
@@ -97,8 +97,9 @@ class DiscountsExcel
         $this->siteID = \CSite::GetDefSite(); //сайт по умолчанию
         $this->rulePatternName = ['$AUTO_EXCEL', '$AUTO_EXCEL{%s}[%s]'];
         $this->files = [
-            'importExel' => $_SERVER['DOCUMENT_ROOT'] . '/upload/exchange/import/autoImportRuleBasket.xlsx',
-            'logFile' => $_SERVER['DOCUMENT_ROOT'] . '/upload/exchange/import/autoImportRuleBasket.txt'
+            'importExcel' => $_SERVER['DOCUMENT_ROOT'] . '/upload/exchange/import/autoImportRuleBasket.xlsx',
+            'logFile' => $_SERVER['DOCUMENT_ROOT'] . '/upload/exchange/import/autoImportRuleBasket.txt',
+            'logFileLast' => $_SERVER['DOCUMENT_ROOT'] . '/upload/exchange/import/autoImportRuleBasketLast.txt'
         ];
         $this->propertyArticle = 'PROPERTY_ARTNUMBER';
         $this->ibOffersCode = 'clothes_offers';
@@ -130,11 +131,11 @@ class DiscountsExcel
      */
     public function execute(): bool
     {
-        if (!file_exists($this->files['importExel']))
+        if (!file_exists($this->files['importExcel']))
             throw new \Exception('файл импорта отсутствует.');
 
         //запускать только после изменения файла со скидками
-        $fileEditTime = filemtime($this->files['importExel']);
+        $fileEditTime = filemtime($this->files['importExcel']);
         if ($fileEditTime == Option::get('exchange', 'DiscountsExcel'))
             throw new \Exception('в файле импорта изменений нет');
 
@@ -165,7 +166,7 @@ class DiscountsExcel
             'startRow' => 2,
             'endRow' => 999999,
             'sheetName' => 'ИмпортПравилКорзины',
-            'file' => $this->files['importExel'],
+            'file' => $this->files['importExcel'],
         ];
         $this->mappingColumn = [
             'A' => 'article',
@@ -266,31 +267,11 @@ class DiscountsExcel
     }
 
     /**
-     * Синхронизация правил корзины с exel файлом. Добавление/обновление/удаление.
+     * Найти основные ID товаров по артикулу из excel
      *
-     * @return $this
-     * @throws ArgumentException
      * @throws LoaderException
-     * @throws ObjectNotFoundException
-     * @throws ObjectPropertyException
-     * @throws SystemException
      */
-    private function synchronizingRules(): DiscountsExcel
-    {
-        //Найти все существующие правила
-        $dbResult = DiscountTable::getList(
-            [
-                'filter' => [
-                    "LID" => $this->siteID,
-                    "%NAME" => $this->rulePatternName[0]
-                ],
-                'select' => ['ID', 'NAME']
-            ]
-        );
-        $dbIssetRules = $dbResult->fetchAll();
-        $dbIssetRules = array_combine(array_column($dbIssetRules, 'ID'), array_column($dbIssetRules, 'NAME'));
-
-        // найти основные ID товаров по "родительскому" ID из excel
+    protected function getIdsByParents(){
         $resultOffers = \CIBlockElement::getList(
             ['SORT' => 'ASC'],
             [
@@ -307,6 +288,35 @@ class DiscountsExcel
         while ($result = $resultOffers->fetch()) {
             $this->productsIdMap[$result[$this->propertyArticle . '_VALUE']] = $result['ID'];
         }
+    }
+
+    /**
+     * Синхронизация правил корзины с excel файлом. Добавление/обновление/удаление.
+     *
+     * @return $this
+     * @throws ArgumentException
+     * @throws LoaderException
+     * @throws ObjectNotFoundException
+     * @throws ObjectPropertyException
+     * @throws SystemException
+     */
+    protected function synchronizingRules(): DiscountsExcel
+    {
+        //Найти все существующие правила
+        $dbResult = DiscountTable::getList(
+            [
+                'filter' => [
+                    "LID" => $this->siteID,
+                    "%NAME" => $this->rulePatternName[0]
+                ],
+                'select' => ['ID', 'NAME']
+            ]
+        );
+        $dbIssetRules = $dbResult->fetchAll();
+        $dbIssetRules = array_combine(array_column($dbIssetRules, 'ID'), array_column($dbIssetRules, 'NAME'));
+
+        // найти основные ID товаров по артикулу из excel
+        $this->getIdsByParents();
 
         // добавить/обновить правила
         $nameRuleDb = [];
@@ -402,7 +412,7 @@ class DiscountsExcel
         }
 
 
-        //Из старых правил выбираем те, которых нет в exel и удаляем
+        //Из старых правил выбираем те, которых нет в excel и удаляем
         $ruleDiff = array_diff($dbIssetRules, $nameRuleDb);
         foreach ($ruleDiff as $ruleID => $nameRule) {
             $result = $this->deleteRule($ruleID);
@@ -434,7 +444,7 @@ class DiscountsExcel
      * @param int $productId
      * @return int
      */
-    private function getRuleSort(array $itemRule, int $productId): int
+    protected function getRuleSort(array $itemRule, int $productId): int
     {
         return (int)$itemRule['priceDiscount'];
     }
@@ -477,7 +487,7 @@ class DiscountsExcel
      * @throws ObjectPropertyException
      * @throws SystemException
      */
-    private function getBasePrices(array $ids): array
+    protected function getBasePrices(array $ids): array
     {
         $iterator = Price::getList([
             'select' => ['PRODUCT_ID', 'PRICE'],
@@ -497,7 +507,7 @@ class DiscountsExcel
      * @return int
      * @throws Exception
      */
-    private function getIbProducts(): int
+    protected function getIbProducts(): int
     {
         static $ibOffers = null;
         if ($ibOffers === null) {
@@ -525,7 +535,7 @@ class DiscountsExcel
      * @param string|null $dateTimeStop - окончание активности
      * @return false|int
      */
-    private function addRule(
+    protected function addRule(
         int $productId,
         float $priceDiscount,
         string $name,
@@ -653,7 +663,7 @@ class DiscountsExcel
      * @param int $id
      * @return bool
      */
-    private function deleteRule(int $id): bool
+    protected function deleteRule(int $id): bool
     {
         if (!$id)
             return false;
@@ -731,7 +741,7 @@ class DiscountsExcel
     /**
      * Сохранение отчёта report в файл $this->files['logFile']
      */
-    private function saveReport()
+    private function saveReport(): void
     {
         if (empty($this->report))
             return;
@@ -755,9 +765,12 @@ class DiscountsExcel
 
             $text[] = $str;
         }
+
+        $text = array_merge($text, array_fill(0, 4, ''));
+        file_put_contents($this->files['logFileLast'], implode(PHP_EOL, $text));
+
         if (!empty($excelData))
             $text[] = 'Данные excel файла на ' . date('Y.m.d H:i:s') . ' ' . $excelData;
-        $text = array_merge($text, array_fill(0, 4, ''));
 
         //echo implode(PHP_EOL, $text);
         file_put_contents($this->files['logFile'], implode(PHP_EOL, $text), FILE_APPEND);
